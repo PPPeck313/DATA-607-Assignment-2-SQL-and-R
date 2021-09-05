@@ -1,0 +1,214 @@
+---
+title: "DATA 607 - Assignment 2 - SQL and R"
+author: "Preston Peck"
+date: "9/2/2021"
+output: html_document
+---
+
+# Overview
+
+A small group of participants of varying ages, occupational backgrounds, and viewing experiences was tasked with providing their opinions of films of varying ages, genres, and socially accepted numerical ratings. The following is a brief analysis of these results:
+
+
+
+# Analysis
+### Import Dependencies
+
+```{r}
+require("RPostgreSQL")
+require("ggplot2")
+```
+
+### Database Connection
+##### Password Protection (left intentionally visible)
+
+```{r}
+secret <- {
+  "password"
+}
+```
+
+##### Connect
+
+```{r}
+driver <- dbDriver("PostgreSQL")
+connection <- dbConnect(driver, dbname = "movie",
+                 host = "localhost", port = 5432,
+                 user = "postgres", password = secret)
+rm(secret)
+```
+
+### Database Query
+##### What movies received the best reviews?
+
+```{r}
+averageStarsByMovieQuery <-
+"select m.title, avg(r.num_of_star) as average_critic_star_rating 
+from critic_movie as cm
+left join critic as c
+on c.id = cm.critic_id
+left join rating as r
+on r.id = cm.rating_id
+left join movie as m
+on m.id = cm.movie_id
+group by m.id
+order by average_critic_star_rating;"
+
+averageStarsByMovie <- dbGetQuery(connection, averageStarsByMovieQuery)
+averageStarsByMovie
+
+averageAcrossAllMovies <- mean(averageStarsByMovie$average_critic_star_rating)
+averageAcrossAllMovies
+  
+ggplot(averageStarsByMovie, aes(x = reorder(title, average_critic_star_rating), y = average_critic_star_rating, fill = average_critic_star_rating > averageAcrossAllMovies)) + 
+  geom_col() + labs(x = "Movie", y = "Average Stars", fill = "Rating > Avg?") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+##### What movie had the biggest critic to Metacritic difference?
+
+```{r}
+criticMetacriticStarRatingDifferenceByMovieQuery <-
+"select title, average_critic_star_rating, num_of_star as metacritic_star_rating, (average_critic_star_rating - num_of_star) as critic_metacritic_star_rating_difference
+from
+(select m.title, m.metacritic_rating_id, avg(r.num_of_star) as average_critic_star_rating 
+from critic_movie as cm
+left join critic as c
+on c.id = cm.critic_id
+left join rating as r
+on r.id = cm.rating_id
+left join movie as m
+on m.id = cm.movie_id
+group by m.id
+order by average_critic_star_rating) as cmr
+left join rating as r
+on r.id = cmr.metacritic_rating_id;"
+
+criticMetacriticStarRatingDifferenceByMovie <- dbGetQuery(connection, criticMetacriticStarRatingDifferenceByMovieQuery)
+criticMetacriticStarRatingDifferenceByMovie
+
+ggplot(criticMetacriticStarRatingDifferenceByMovie, aes(x = reorder(title, critic_metacritic_star_rating_difference), y = critic_metacritic_star_rating_difference, fill = critic_metacritic_star_rating_difference > 0)) +
+  geom_col() + 
+  labs(x = "Movie", y = "Average Stars", fill = "Critic > Metacritic?") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+##### Which level of hobbyist gave the best reviews?
+
+```{r}
+averageStarsByExperienceQuery <- 
+"select e.name, avg(r.num_of_star) as average_critic_star_rating 
+from critic_movie as cm
+left join critic as c
+on c.id = cm.critic_id
+left join rating as r
+on r.id = cm.rating_id
+left join experience as e
+on e.id = c.experience_id
+group by e.id
+order by average_critic_star_rating;"
+
+averageCriticScore <- dbGetQuery(connection, averageStarsByExperienceQuery)
+averageCriticScore
+
+ggplot(averageCriticScore, aes(x = reorder(name, average_critic_star_rating), y = average_critic_star_rating, fill = reorder(name, average_critic_star_rating))) +
+  geom_col() + 
+  scale_fill_manual(values = c("#FFFF00", "#FFA500", "#FF0000")) + 
+  labs(x = "Viewing Experience", y = "Average Stars", fill = "Experience")
+```
+
+##### Which generation reviewed movies within their generation the best?
+
+```{r}
+averageStarsByCriticMovieGenerationMatchQuery <-
+"select concat(c.generation, '_', m.generation) as client_movie_generation, avg(r.num_of_star) as average_critic_star_rating
+from critic_movie as cm
+left join
+(select *, case 
+when year_born <= 1945 then 'Silent Gen'
+when year_born >= 1946 and year_born <= 1964 then 'Baby Boomers'
+when year_born >= 1965 and year_born <= 1976 then 'Gen X'
+when year_born >= 1977 and year_born <= 1995 then 'Millennials'
+when year_born >= 1996 and year_born <= 2015 then 'Gen Z'
+else 'Gen Alpha'
+end generation
+from (
+	select *, extract(year from birthday) as year_born 
+	from critic
+) critic_year_born) as c
+on c.id = cm.critic_id
+left join rating as r
+on r.id = cm.rating_id
+left join
+(select *, case 
+when year_released <= 1945 then 'Silent Gen'
+when year_released >= 1946 and year_released <= 1964 then 'Baby Boomers'
+when year_released >= 1965 and year_released <= 1976 then 'Gen X'
+when year_released >= 1977 and year_released <= 1995 then 'Millennials'
+when year_released >= 1996 and year_released <= 2015 then 'Gen Z'
+else 'Gen Alpha'
+end generation
+from movie) as m
+on m.id = cm.movie_id
+where c.generation = m.generation
+group by c.generation, m.generation
+order by average_critic_star_rating;"
+
+averageStarsByCriticMovieGenerationMatch <- dbGetQuery(connection, averageStarsByCriticMovieGenerationMatchQuery)
+averageStarsByCriticMovieGenerationMatch
+
+ggplot(averageStarsByCriticMovieGenerationMatch, aes(x = reorder(client_movie_generation, average_critic_star_rating), y = average_critic_star_rating)) +
+  geom_col() +
+  labs(x = "Critic to Movie Generation", y = "Average Stars")
+```
+
+##### How did generations review movies outside their generation?
+```{r}
+averageStarsByCriticMovieGenerationMismatchQuery <-
+"select concat(c.generation, '_', m.generation) as client_movie_generation, avg(r.num_of_star) as average_critic_star_rating
+from critic_movie as cm
+left join
+(select *, case 
+when year_born <= 1945 then 'Silent Gen'
+when year_born >= 1946 and year_born <= 1964 then 'Baby Boomers'
+when year_born >= 1965 and year_born <= 1976 then 'Gen X'
+when year_born >= 1977 and year_born <= 1995 then 'Millennials'
+when year_born >= 1996 and year_born <= 2015 then 'Gen Z'
+else 'Gen Alpha'
+end generation
+from (
+	select *, extract(year from birthday) as year_born 
+	from critic
+) critic_year_born) as c
+on c.id = cm.critic_id
+left join rating as r
+on r.id = cm.rating_id
+left join
+(select *, case 
+when year_released <= 1945 then 'Silent Gen'
+when year_released >= 1946 and year_released <= 1964 then 'Baby Boomers'
+when year_released >= 1965 and year_released <= 1976 then 'Gen X'
+when year_released >= 1977 and year_released <= 1995 then 'Millennials'
+when year_released >= 1996 and year_released <= 2015 then 'Gen Z'
+else 'Gen Alpha'
+end generation
+from movie) as m
+on m.id = cm.movie_id
+where c.generation != m.generation
+group by c.generation, m.generation
+order by average_critic_star_rating;"
+
+averageStarsByCriticMovieGenerationMismatch <- dbGetQuery(connection, averageStarsByCriticMovieGenerationMismatchQuery)
+averageStarsByCriticMovieGenerationMismatch
+
+ggplot(averageStarsByCriticMovieGenerationMismatch, aes(x = reorder(client_movie_generation, average_critic_star_rating), y = average_critic_star_rating)) +
+  geom_col() +
+  labs(x = "Critic to Movie Generation", y = "Average Stars") +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+
+
+
+# Conclusions
+
+It's hard to make any strong conclusions here given the limited sample size, but on the face, the best one that can be made is that movie enthusiasts seem more likely to rate movies higher on average than those who are not as familiar with the art.

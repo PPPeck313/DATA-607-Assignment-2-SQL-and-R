@@ -1,0 +1,5 @@
+﻿name,description
+Beginner,Has watched a few movies (< 20)
+Itermediate,Has watched a fair amount of movies (< 100)
+Advanced,Has watched a good amount of movies (< 1000)
+Expert,Has watched a lot of movies (> 1000)
